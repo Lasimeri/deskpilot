@@ -1,65 +1,155 @@
 # deskpilot
 
-KWin/Wayland desktop control CLI. Built for driving this machine from Claude Code:
-atomic dual-monitor screenshots plus a virtual mouse and keyboard, all in
-global compositor coordinates so what a screenshot shows is where a click lands.
+Desktop control for a KDE Plasma (Wayland) machine, built so an AI agent
+such as Claude Code can see and drive the desktop: atomic screenshots of
+every monitor, and a virtual mouse and keyboard. Everything uses KWin's own
+interfaces, in global compositor coordinates, so the place a screenshot
+shows is the place a click lands.
 
-Cargo workspace; single member crate `desk`. Binary: `target/release/desk`.
+It comes as one binary, `desk`, which works two ways:
 
-## Mechanisms
+- **a command-line tool**: `desk shot`, `desk click 4600 300`, `desk type "hello"`;
+- **an MCP server** (`desk mcp`): the same actions as tools an agent calls
+  directly, with no shell round trip.
 
-- Screenshots: KWin's `org.kde.KWin.ScreenShot2` D-Bus interface (v5). Pixels
-  stream over a pipe fd; converted from QImage BGRA/RGBA to RGB PNG (fast
-  compression). `CaptureWorkspace` grabs every monitor in one atomic frame,
-  then crops per output, so "both monitors at once" is literal.
-- Input: `org_kde_kwin_fake_input` Wayland protocol (the KDE Connect path).
-  `pointer_motion_absolute` takes global logical coordinates: no libinput
-  acceleration, no uinput device classification, no calibration.
-  `keyboard_key` takes evdev codes; the compositor applies the active xkb
-  layout (US assumed by the `type` mapping table).
-- Output enumeration: `wl_output` v4 (name, position, mode, scale).
+## Why
 
-## Authorization (the part that will bite later)
+On Wayland the usual tools do not work: `xdotool` needs X11, `ydotool` and
+uinput devices get pointer acceleration and device classification in the way,
+and screenshot portals ask a person to approve each capture. KWin has
+better paths, but they are restricted: it only lets a program it trusts use
+them. deskpilot uses those paths and registers itself as trusted (`desk
+setup`, below).
 
-Both KWin interfaces are restricted. KWin resolves the caller's
-`/proc/<pid>/exe` and matches it against `Exec` of desktop entries carrying:
+## Features
 
-- `X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2` (D-Bus, screenshots)
-- `X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input` (Wayland global, input)
+- **Screenshots** through KWin's `org.kde.KWin.ScreenShot2` D-Bus interface.
+  The whole workspace is grabbed in one atomic frame and then cut per
+  monitor, so "both monitors at once" is literal. A single monitor or a
+  rectangle at native resolution works too. Pixels arrive over a pipe and
+  are saved as PNG.
+- **Mouse** through the `org_kde_kwin_fake_input` Wayland protocol (the one
+  KDE Connect uses): absolute moves in global logical coordinates, with no
+  acceleration or calibration; click, double click, press and release,
+  scroll, drag.
+- **Keyboard** through the same protocol: key combinations (`ctrl+shift+t`,
+  `alt+space`, `f5`) and typed text. The compositor applies the active
+  keyboard layout; `type` assumes US.
+- **Outputs**: each monitor's name, position, size and scale (`wl_output` v4).
+- **Idle state**: whether the person is active or idle (`ext-idle-notify-v1`).
+- **MCP server**: newline-delimited JSON-RPC on stdin and stdout, one Wayland
+  connection for the life of the server.
+
+## Requirements
+
+- KDE Plasma 6 on Wayland (KWin). Other compositors do not offer these
+  interfaces.
+- Rust (stable) to build.
+- `kbuildsycoca6` (part of KDE Frameworks), used by `desk setup`.
+
+## Build and install
+
+```bash
+git clone https://github.com/Lasimeri/deskpilot.git
+cd deskpilot
+cargo build --release
+./target/release/desk setup     # once, and again whenever the binary moves
+```
+
+### Authorization: `desk setup`
+
+Both KWin interfaces are restricted. KWin looks up the calling program's
+path (`/proc/<pid>/exe`) and checks it against the `Exec=` line of
+desktop entries that carry the right keys:
+
+- `X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2` for screenshots;
+- `X-KDE-Wayland-Interfaces=org_kde_kwin_fake_input` for the mouse and keyboard.
 
 `desk setup` writes `~/.local/share/applications/desk.desktop` with
-`Exec=<current binary path>` and runs `kbuildsycoca6`. If the binary path
-changes (debug build, moved workspace), re-run `desk setup`. A debug build at a
-different path fails with NotAuthorized / missing-global errors by design.
+`Exec=` set to the binary's absolute path, and rebuilds the KDE service
+cache. The authorization belongs to that exact path: a debug build, a
+moved checkout or a copied binary fails with `NotAuthorized` or a missing
+Wayland global until `desk setup` is run from the new path.
 
-## Usage
+## Command line
 
 ```
-desk setup                          # once, and after the binary moves
-desk outputs                        # monitor names + geometry + workspace bbox
-desk shot                           # atomic grab -> all.png + one png per monitor
-desk shot --region 4400 100 400 400 # native-res rectangle, global coords
-desk shot --screen DP-4             # single output
+desk setup                            # authorize this binary (see above)
+desk outputs                          # monitors: name, geometry, scale; the workspace's bounds
+desk shot                             # the whole workspace + one PNG per monitor
+desk shot --screen DP-1               # one monitor
+desk shot --region 4400 100 400 400   # a rectangle in global coordinates, native resolution
 desk shot --no-cursor --no-split
 desk click 4600 300 [right] [--double]
-desk mouse move|click|down|up|scroll|drag ...
-desk key ctrl+shift+t f5 enter      # combos in sequence
-desk type "text" [--enter]          # US layout; unmappable chars error out
-desk idle [--threshold-ms 600000]   # prints idle|active via ext-idle-notify-v1
+desk mouse move X Y
+desk mouse click|down|up [left|right|middle]
+desk mouse scroll DY [DX]               # wheel notches, positive = down / right
+desk mouse drag X1 Y1 X2 Y2
+desk key ctrl+shift+t f5 enter        # combinations, in order
+desk type "text" [--enter]            # US layout; a character it cannot type is an error
+desk idle [--threshold-ms 600000]     # prints idle or active
+desk mcp                              # run as an MCP server
 ```
 
-PNGs land in `~/.cache/desk-shots/` stamped with epoch millis.
+Screenshots are written to `~/.cache/desk-shots/`, named with the epoch
+milliseconds. `desk` sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` defaults
+itself, so it also works from SSH or other contexts without the session's
+environment.
 
-Coordinates are global logical pixels (scale 1 on this box, so identical to
-image pixels). Current layout: DP-5 2560x1440 at (0,720), DP-4 3840x2160 at
-(2560,0); workspace 6400x2160. Trust `desk outputs` over this paragraph.
+## MCP server (Claude Code)
 
-The tool sets `XDG_RUNTIME_DIR`/`WAYLAND_DISPLAY` defaults itself, so it works
-from bare SSH/exec contexts without session env.
+```bash
+claude mcp add desk -- /absolute/path/to/deskpilot/target/release/desk mcp
+```
 
-## Verified 2026-09-01
+Tools: `screenshot` (all monitors, one monitor or a region; scaled to
+`max_width`, default 1568, 0 for full size; the result says how its pixels
+map to global coordinates), `outputs`, `click`, `move`, `mouse_button`,
+`scroll`, `drag`, `key`, `type` and `idle`. The server's instructions tell
+the agent to look before acting: take a screenshot, act, then take another
+to check.
 
-- Workspace + per-monitor + region captures against live session
-- Pointer absolute move landed at exact commanded pixel (region-shot check)
-- `alt+space` KRunner + `type` produced the exact string, Escape dismissed
-- Scroll/drag share the same verified channel but were not separately exercised
+## Coordinates
+
+Global logical pixels of the compositor's workspace, the rectangle that
+`desk outputs` prints for each monitor. With every monitor at scale 1 they
+equal screenshot pixels; a scaled-down MCP screenshot states its origin and
+scale (`global = origin + pixel / scale`). Trust `desk outputs` over any
+layout written down anywhere.
+
+## Known quirks
+
+- **The first key event of each process is dropped** by the fake-input
+  protocol. The MCP server spends it once at startup (a Shift press and
+  release); a one-off `desk key` or `desk type` from the command line loses
+  its first key, so lead with a harmless key if it matters.
+- `type` maps characters for a US layout; under another active layout the
+  compositor turns the same key codes into other characters.
+- The authorization is tied to the binary's path (see `desk setup`).
+
+## Safety
+
+This gives whatever runs `desk` full control of the desktop: it can see
+every screen and press any key. Only the binary at the path `desk setup`
+registered is trusted by KWin, and nothing listens on the network: the MCP
+server talks over stdin and stdout to the agent that started it. Give it to
+an agent you would let sit at your keyboard.
+
+## How it was verified
+
+On a two-monitor Plasma 6 desktop: workspace, single-monitor and region
+captures against the live session; an absolute pointer move landing on the
+exact commanded pixel (checked with a region shot); `alt+space` to KRunner,
+then `type`, produced the exact string, and Escape dismissed it. Scroll and
+drag use the same verified channel.
+
+## Layout
+
+| path | what |
+| --- | --- |
+| `desk/src/main.rs` | the command line |
+| `desk/src/shot.rs` | screenshots through KWin's ScreenShot2 |
+| `desk/src/wl.rs` | Wayland: outputs, fake input, idle notification |
+| `desk/src/keys.rs` | key names and the US-layout table for `type` |
+| `desk/src/mcp.rs` | the MCP server |
+| `desk/src/setup.rs` | the desktop entry that authorizes the binary |
