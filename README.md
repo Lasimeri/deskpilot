@@ -83,7 +83,7 @@ desk shot --no-cursor --no-split
 desk click 4600 300 [right] [--double]
 desk mouse move X Y
 desk mouse click|down|up [left|right|middle]
-desk mouse scroll DY [DX]               # wheel notches, positive = down / right
+desk mouse scroll N [--horizontal]    # wheel notches, positive = down (right)
 desk mouse drag X1 Y1 X2 Y2
 desk key ctrl+shift+t f5 enter        # combinations, in order
 desk type "text" [--enter]            # US layout; a character it cannot type is an error
