@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["desk"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
