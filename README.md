@@ -93,6 +93,7 @@ desk idle [--threshold-ms 600000]     # prints idle or active
 desk mcp                              # run as an MCP server
 desk cast [--no-cursor] [--forget] -- gst-launch-1.0 pipewiresrc fd=@FD@ path=@NODE@ ! ...
                                       # a live screencast of one monitor, handed to the command
+desk cast --window -- ...             # one window instead (its own size), chosen in the dialog
 ```
 
 `desk cast` opens a screencast through the desktop portal

@@ -74,11 +74,15 @@ fn inheritable(fd: &OwnedFd) -> Result<()> {
     Ok(())
 }
 
-pub fn run(cursor: bool, forget: bool, child: Vec<String>) -> Result<i32> {
+pub fn run(cursor: bool, forget: bool, window: bool, child: Vec<String>) -> Result<i32> {
     if child.is_empty() {
-        bail!("desk cast [--no-cursor] [--forget] -- COMMAND [ARGS...]  (@FD@ and @NODE@ are substituted)");
+        bail!("desk cast [--no-cursor] [--forget] [--window] -- COMMAND [ARGS...]  (@FD@ and @NODE@ are substituted)");
     }
-    let tf = token_file()?;
+    // A window's permission is kept apart from a monitor's.
+    let mut tf = token_file()?;
+    if window {
+        tf.set_file_name("cast-window.token");
+    }
     if forget {
         let _ = std::fs::remove_file(&tf);
     }
@@ -98,10 +102,11 @@ pub fn run(cursor: bool, forget: bool, child: Vec<String>) -> Result<i32> {
     };
     let session_path = OwnedObjectPath::try_from(session.as_str()).context("session path")?;
 
-    // SelectSources: one monitor, the cursor embedded or hidden, permission kept.
+    // SelectSources: one monitor (or one window), the cursor embedded or
+    // hidden, permission kept.
     let sp = session_path.clone();
     portal_call(&conn, &mut counter, "SelectSources", |c, mut o| {
-        o.insert("types", Value::from(1u32));
+        o.insert("types", Value::from(if window { 2u32 } else { 1u32 }));
         o.insert("multiple", Value::from(false));
         o.insert("cursor_mode", Value::from(if cursor { 2u32 } else { 1u32 }));
         o.insert("persist_mode", Value::from(2u32));

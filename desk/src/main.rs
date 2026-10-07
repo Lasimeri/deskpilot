@@ -80,6 +80,9 @@ enum Cmd {
         /// Drop the remembered permission and ask again
         #[arg(long)]
         forget: bool,
+        /// One window instead of a monitor (the dialog asks which; the stream has the window's size)
+        #[arg(long)]
+        window: bool,
         /// The command that consumes the stream
         #[arg(last = true, required = true)]
         command: Vec<String>,
@@ -167,8 +170,8 @@ fn main() -> Result<()> {
         }
         Cmd::Type { text, delay_ms, enter } => type_text(&text, delay_ms, enter),
         Cmd::Mcp => mcp::run(),
-        Cmd::Cast { no_cursor, forget, command } => {
-            let code = cast::run(!no_cursor, forget, command)?;
+        Cmd::Cast { no_cursor, forget, window, command } => {
+            let code = cast::run(!no_cursor, forget, window, command)?;
             std::process::exit(code);
         }
     }
