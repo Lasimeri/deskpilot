@@ -35,6 +35,8 @@ setup`, below).
 - **Keyboard** through the same protocol: key combinations (`ctrl+shift+t`,
   `alt+space`, `f5`) and typed text. The compositor applies the active
   keyboard layout; `type` assumes US.
+- **Screencast** through the desktop portal's `ScreenCast` interface: one
+  monitor as a PipeWire stream, handed to any consumer (`desk cast`).
 - **Outputs**: each monitor's name, position, size and scale (`wl_output` v4).
 - **Idle state**: whether the person is active or idle (`ext-idle-notify-v1`).
 - **MCP server**: newline-delimited JSON-RPC on stdin and stdout, one Wayland
@@ -89,7 +91,21 @@ desk key ctrl+shift+t f5 enter        # combinations, in order
 desk type "text" [--enter]            # US layout; a character it cannot type is an error
 desk idle [--threshold-ms 600000]     # prints idle or active
 desk mcp                              # run as an MCP server
+desk cast [--no-cursor] [--forget] -- gst-launch-1.0 pipewiresrc fd=@FD@ path=@NODE@ ! ...
+                                      # a live screencast of one monitor, handed to the command
 ```
+
+`desk cast` opens a screencast through the desktop portal
+(`org.freedesktop.portal.ScreenCast`): the compositor's own PipeWire video
+stream of one monitor, every frame it draws. The portal's dialog asks which
+monitor the first time; the answer is kept as a restore token in
+`~/.cache/desk/cast.token`, so later runs start silently (`--forget` asks
+again). The command after `--` runs as a child with the PipeWire connection
+inherited: `@FD@` becomes that file descriptor and `@NODE@` the stream's
+node id, which is what GStreamer's `pipewiresrc fd= path=` wants. The
+session lasts as long as the child. Nothing here needs root; the kernel's
+own capture (`kmsgrab`) is not usable on NVIDIA's driver, where the scanout
+surface is a tiled 16-bit float buffer.
 
 Screenshots are written to `~/.cache/desk-shots/`, named with the epoch
 milliseconds. `desk` sets `XDG_RUNTIME_DIR` and `WAYLAND_DISPLAY` defaults

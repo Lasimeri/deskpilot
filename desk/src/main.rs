@@ -1,3 +1,4 @@
+mod cast;
 mod keys;
 mod mcp;
 mod setup;
@@ -69,6 +70,20 @@ enum Cmd {
     },
     /// The desktop as an MCP server on stdin/stdout (for Claude Code: claude mcp add desk -- desk mcp)
     Mcp,
+    /// A live screencast of one monitor (the portal's PipeWire stream) handed to COMMAND,
+    /// with @FD@ and @NODE@ substituted in its arguments; e.g.
+    /// desk cast -- gst-launch-1.0 pipewiresrc fd=@FD@ path=@NODE@ ! ...
+    Cast {
+        /// Leave the pointer out of the stream
+        #[arg(long)]
+        no_cursor: bool,
+        /// Drop the remembered permission and ask again
+        #[arg(long)]
+        forget: bool,
+        /// The command that consumes the stream
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
     /// Type literal text (US layout)
     Type {
         text: String,
@@ -152,6 +167,10 @@ fn main() -> Result<()> {
         }
         Cmd::Type { text, delay_ms, enter } => type_text(&text, delay_ms, enter),
         Cmd::Mcp => mcp::run(),
+        Cmd::Cast { no_cursor, forget, command } => {
+            let code = cast::run(!no_cursor, forget, command)?;
+            std::process::exit(code);
+        }
     }
 }
 
