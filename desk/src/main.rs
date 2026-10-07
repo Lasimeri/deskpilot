@@ -1,4 +1,5 @@
 mod cast;
+mod cursor;
 mod keys;
 mod mcp;
 mod setup;
@@ -87,6 +88,12 @@ enum Cmd {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
+    /// The pointer's global position, "X Y" per line as it moves (a KWin script reports it)
+    Cursor {
+        /// How often KWin is asked, in milliseconds
+        #[arg(long, default_value_t = 40)]
+        interval_ms: u32,
+    },
     /// Type literal text (US layout)
     Type {
         text: String,
@@ -170,6 +177,7 @@ fn main() -> Result<()> {
         }
         Cmd::Type { text, delay_ms, enter } => type_text(&text, delay_ms, enter),
         Cmd::Mcp => mcp::run(),
+        Cmd::Cursor { interval_ms } => cursor::run(interval_ms),
         Cmd::Cast { no_cursor, forget, window, command } => {
             let code = cast::run(!no_cursor, forget, window, command)?;
             std::process::exit(code);
